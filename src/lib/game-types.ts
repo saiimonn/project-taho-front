@@ -433,7 +433,7 @@ export class PowerUp extends Entity {
 export interface GameState {
   player: Player
   bullets: Bullet[]
-  playerBulltes: PlayerBullet[]
+  playerBullets: PlayerBullet[]
   enemies: Enemy[]
   boss: Boss | null
   powerUps: PowerUp[]
