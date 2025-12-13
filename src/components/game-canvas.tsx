@@ -1,12 +1,8 @@
 "use client"
 
-import { useRef, useEffect } from "react"
-import type { GameState, Bullet, BulletColor } from "../lib/game-types"
+import { forwardRef } from "react"
+import type { GameState, Bullet, BulletColor, Player } from "../lib/game-types"
 import { GAME_WIDTH, GAME_HEIGHT } from "../lib/game-engine"
-
-interface GameCanvasProps {
-  gameState: GameState
-}
 
 const BULLET_COLORS: Record<BulletColor, { fill: string; glow: string }> = {
   red: { fill: "#ff4444", glow: "#ff000066" },
@@ -17,104 +13,152 @@ const BULLET_COLORS: Record<BulletColor, { fill: string; glow: string }> = {
   green: { fill: "#44ff88", glow: "#44ff8866" },
 }
 
-export function GameCanvas({ gameState }: GameCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+// Standalone draw function (called by the loop)
+export function drawGame(ctx: CanvasRenderingContext2D, gameState: GameState) {
+  // Clear and draw background
+  const bgGradient = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT)
+  bgGradient.addColorStop(0, "#0a0818")
+  bgGradient.addColorStop(0.5, "#0d0a20")
+  bgGradient.addColorStop(1, "#08061a")
+  ctx.fillStyle = bgGradient
+  ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT)
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
+  // Starfield
+  ctx.fillStyle = "#ffffff"
+  for (let i = 0; i < 40; i++) {
+    const x = (i * 97 + gameState.stageTimer * 0.1) % GAME_WIDTH
+    const y = (i * 73 + gameState.stageTimer * (0.2 + (i % 3) * 0.1)) % GAME_HEIGHT
+    const size = 1 + (i % 2)
+    ctx.globalAlpha = 0.3 + (i % 3) * 0.2
+    ctx.fillRect(x, y, size, size)
+  }
+  ctx.globalAlpha = 1
 
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
+  // Draw power-ups
+  gameState.powerUps.forEach((pu) => {
+    const colors: Record<string, string> = {
+      power: "#ff4466",
+      point: "#ffff00",
+      bomb: "#44ff88",
+      life: "#ff88cc",
+    }
+    const color = colors[pu.type] || "#ffffff"
+    
+    // Fake Glow
+    ctx.globalAlpha = 0.4
+    ctx.fillStyle = color
+    ctx.beginPath()
+    ctx.arc(pu.x, pu.y, 10, 0, Math.PI * 2)
+    ctx.fill()
+    
+    // Core
+    ctx.globalAlpha = 1.0
+    ctx.fillStyle = color
+    ctx.beginPath()
+    ctx.arc(pu.x, pu.y, 6, 0, Math.PI * 2)
+    ctx.fill()
+  })
 
-    // Clear and draw background
-    const bgGradient = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT)
-    bgGradient.addColorStop(0, "#0a0818")
-    bgGradient.addColorStop(0.5, "#0d0a20")
-    bgGradient.addColorStop(1, "#08061a")
-    ctx.fillStyle = bgGradient
-    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT)
+  // Draw enemies
+  gameState.enemies.forEach((enemy) => {
+    drawEnemy(ctx, enemy.x, enemy.y, enemy.width, enemy.type)
+  })
 
-    // Starfield
+  // Draw boss
+  if (gameState.boss) {
+    drawBoss(ctx, gameState.boss, gameState.stageTimer)
+  }
+
+  // Draw Bomb Effect (Behind player but above BG)
+  if (gameState.player.bombVisualTimer > 0) {
+    drawBombEffect(ctx, gameState.player)
+  }
+
+  // Draw player bullets
+  gameState.playerBullets.forEach((pb) => {
+    ctx.fillStyle = "#88ff8866"
+    ctx.fillRect(pb.x - pb.width / 2 - 2, pb.y - pb.height / 2 - 2, pb.width + 4, pb.height + 4)
     ctx.fillStyle = "#ffffff"
-    for (let i = 0; i < 40; i++) {
-      const x = (i * 97 + gameState.stageTimer * 0.1) % GAME_WIDTH
-      const y = (i * 73 + gameState.stageTimer * (0.2 + (i % 3) * 0.1)) % GAME_HEIGHT
-      const size = 1 + (i % 2)
-      ctx.globalAlpha = 0.3 + (i % 3) * 0.2
-      ctx.fillRect(x, y, size, size)
-    }
-    ctx.globalAlpha = 1
+    ctx.fillRect(pb.x - pb.width / 2, pb.y - pb.height / 2, pb.width, pb.height)
+  })
 
-    // Draw power-ups
-    gameState.powerUps.forEach((pu) => {
-      const colors: Record<string, string> = {
-        power: "#ff4466",
-        point: "#ffff00",
-        bomb: "#44ff88",
-        life: "#ff88cc",
-      }
-      ctx.fillStyle = colors[pu.type] || "#ffffff"
-      ctx.shadowColor = colors[pu.type] || "#ffffff"
-      ctx.shadowBlur = 8
-      ctx.beginPath()
-      ctx.arc(pu.x, pu.y, 6, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.shadowBlur = 0
-    })
+  // Draw enemy bullets
+  gameState.bullets.forEach((bullet) => {
+    drawBullet(ctx, bullet)
+  })
 
-    // Draw enemies
-    gameState.enemies.forEach((enemy) => {
-      drawEnemy(ctx, enemy.x, enemy.y, enemy.width, enemy.type)
-    })
+  // Draw player
+  if (!gameState.player.invincible || Math.floor(gameState.stageTimer / 4) % 2 === 0) {
+    drawPlayer(ctx, gameState.player.x, gameState.player.y, false)
+  }
 
-    // Draw boss
-    if (gameState.boss) {
-      drawBoss(ctx, gameState.boss, gameState.stageTimer)
-    }
+  // Bottom point bar
+  ctx.fillStyle = "#ffffff88"
+  ctx.font = "10px monospace"
+  ctx.textAlign = "left"
+  ctx.fillText(`${((gameState.player.point / gameState.player.pointMax) * 100).toFixed(0)}%`, 8, GAME_HEIGHT - 8)
 
-    // Draw player bullets
-    ctx.shadowColor = "#88ff88"
-    ctx.shadowBlur = 4
-    gameState.playerBullets.forEach((pb) => {
-      ctx.fillStyle = "#ffffff"
-      ctx.fillRect(pb.x - pb.width / 2, pb.y - pb.height / 2, pb.width, pb.height)
-      ctx.fillStyle = "#88ff8866"
-      ctx.fillRect(pb.x - pb.width / 2 - 1, pb.y - pb.height / 2 - 1, pb.width + 2, pb.height + 2)
-    })
-    ctx.shadowBlur = 0
+  ctx.fillStyle = "#333366"
+  ctx.fillRect(50, GAME_HEIGHT - 14, 100, 6)
+  ctx.fillStyle = "#ff4488"
+  ctx.fillRect(50, GAME_HEIGHT - 14, 100 * (gameState.player.point / gameState.player.pointMax), 6)
+}
 
-    // Draw enemy bullets
-    gameState.bullets.forEach((bullet) => {
-      drawBullet(ctx, bullet)
-    })
-
-    // Draw player
-    if (!gameState.player.invincible || Math.floor(gameState.stageTimer / 4) % 2 === 0) {
-      drawPlayer(ctx, gameState.player.x, gameState.player.y, false)
-    }
-
-    // Bottom point bar
-    ctx.fillStyle = "#ffffff88"
-    ctx.font = "10px monospace"
-    ctx.textAlign = "left"
-    ctx.fillText(`${((gameState.player.point / gameState.player.pointMax) * 100).toFixed(0)}%`, 8, GAME_HEIGHT - 8)
-
-    ctx.fillStyle = "#333366"
-    ctx.fillRect(50, GAME_HEIGHT - 14, 100, 6)
-    ctx.fillStyle = "#ff4488"
-    ctx.fillRect(50, GAME_HEIGHT - 14, 100 * (gameState.player.point / gameState.player.pointMax), 6)
-  }, [gameState])
-
+export const GameCanvas = forwardRef<HTMLCanvasElement>((props, ref) => {
   return (
     <canvas
-      ref={canvasRef}
+      ref={ref}
       width={GAME_WIDTH}
       height={GAME_HEIGHT}
       className="block"
       style={{ imageRendering: "pixelated" }}
     />
   )
+})
+GameCanvas.displayName = "GameCanvas"
+
+function drawBombEffect(ctx: CanvasRenderingContext2D, player: Player) {
+  const maxTime = 120
+  const time = player.bombVisualTimer
+  const progress = 1 - time / maxTime // 0 to 1
+
+  ctx.save()
+
+  // 1. Screen Dimming (White Fade Out)
+  const opacity = Math.max(0, Math.min(0.6, Math.sin(progress * Math.PI) * 0.8))
+  ctx.fillStyle = `rgba(255, 230, 240, ${opacity})`
+  ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT)
+
+  // 2. Expanding Magical Circles
+  ctx.translate(player.x, player.y)
+  
+  // Rotating Ring 1
+  ctx.rotate(progress * 4)
+  const radius1 = progress * 600
+  ctx.beginPath()
+  ctx.arc(0, 0, radius1, 0, Math.PI * 2)
+  ctx.strokeStyle = `rgba(255, 100, 150, ${1 - progress})`
+  ctx.lineWidth = 40 * (1 - progress)
+  ctx.stroke()
+
+  // Rotating Ring 2 (Counter-rotate)
+  ctx.rotate(-progress * 8)
+  const radius2 = progress * 400
+  ctx.beginPath()
+  ctx.arc(0, 0, radius2, 0, Math.PI * 2)
+  ctx.strokeStyle = `rgba(255, 255, 255, ${1 - progress})`
+  ctx.lineWidth = 20 * (1 - progress)
+  ctx.stroke()
+  
+  // Core Flash
+  if (progress < 0.2) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${1 - progress * 5})`
+      ctx.beginPath()
+      ctx.arc(0, 0, 100, 0, Math.PI * 2)
+      ctx.fill()
+  }
+
+  ctx.restore()
 }
 
 function drawPlayer(ctx: CanvasRenderingContext2D, x: number, y: number, focused: boolean) {
@@ -128,7 +172,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, x: number, y: number, focused
     ctx.stroke()
   }
 
-  // Main body (red like Reimu)
+  // Main body
   ctx.fillStyle = "#cc2222"
   ctx.beginPath()
   ctx.ellipse(x, y, 10, 14, 0, 0, Math.PI * 2)
@@ -170,9 +214,13 @@ function drawBullet(ctx: CanvasRenderingContext2D, bullet: Bullet) {
   ctx.save()
   ctx.translate(bullet.x, bullet.y)
 
-  ctx.shadowColor = colors.glow
-  ctx.shadowBlur = 6
+  // Fake Glow
+  ctx.fillStyle = colors.glow
+  ctx.beginPath()
+  ctx.arc(0, 0, bullet.radius * 2, 0, Math.PI * 2)
+  ctx.fill()
 
+  // Bullet Core
   if (bullet.type === "rice" || bullet.type === "kunai") {
     const angle = bullet.angle || Math.atan2(bullet.vy, bullet.vx)
     ctx.rotate(angle + Math.PI / 2)

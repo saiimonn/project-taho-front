@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import type { GameState, Keys } from "../lib/game-types"
-import { createInitialState, updateGame, GAME_WIDTH, GAME_HEIGHT } from "../lib/game-engine"
-import { GameCanvas } from "./game-canvas"
+import { GameManager, GAME_WIDTH, GAME_HEIGHT } from "../lib/game-engine"
+import { GameCanvas, drawGame } from "./game-canvas"
 import { GameUI } from "./game-ui"
 import { GameMenu } from "./game-menu"
 
@@ -27,8 +27,9 @@ function saveHighScore(score: number): void {
 }
 
 export function Game() {
-  const [mounted, setMounted] = useState(false)
-  const [gameState, setGameState] = useState<GameState | null>(null)
+  // We use refs for the game loop to avoid React re-renders on every frame
+  const gameRef = useRef<GameManager | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
   const keysRef = useRef<Keys>({
     up: false,
     down: false,
@@ -38,42 +39,86 @@ export function Game() {
     focus: false,
     bomb: false,
   })
+  
+  // We only use React state for UI updates (Score, Lives) to save performance
+  // We update this less frequently than 60fps
+  const [uiState, setUiState] = useState<GameState | null>(null)
+  const [mounted, setMounted] = useState(false)
+  
   const gameLoopRef = useRef<number | null>(null)
   const lastTimeRef = useRef<number>(0)
 
+  // Initialize Game Logic
   useEffect(() => {
     setMounted(true)
-    setGameState(createInitialState(loadHighScore()))
+    // Initialize the manager once
+    if (!gameRef.current) {
+        gameRef.current = new GameManager(loadHighScore())
+        setUiState({ ...gameRef.current.getState() }) // Initial sync
+    }
   }, [])
 
   const startGame = useCallback(() => {
-    if (!gameState) return
-    const highScore = Math.max(gameState.highScore, gameState.player.score)
+    if (!gameRef.current) return
+    const currentState = gameRef.current.getState()
+    const highScore = Math.max(currentState.highScore, currentState.player.score)
     saveHighScore(highScore)
-    setGameState({
-      ...createInitialState(highScore),
-      gameStatus: "playing",
-    })
-  }, [gameState])
-
-  const resumeGame = useCallback(() => {
-    setGameState((prev) => (prev ? { ...prev, gameStatus: "playing" } : prev))
+    
+    // Reset and start
+    gameRef.current.resetGame(highScore)
+    
+    // Force UI update
+    setUiState({ ...gameRef.current.getState() })
   }, [])
 
+  const resumeGame = useCallback(() => {
+    if (!gameRef.current) return
+    const state = gameRef.current.getState()
+    state.gameStatus = "playing"
+    setUiState({ ...state })
+  }, [])
+
+  // The Game Loop
   useEffect(() => {
-    if (!gameState || gameState.gameStatus !== "playing") {
-      if (gameLoopRef.current) {
-        cancelAnimationFrame(gameLoopRef.current)
-        gameLoopRef.current = null
-      }
-      return
-    }
+    if (!mounted || !gameRef.current) return
 
     const gameLoop = (timestamp: number) => {
       const deltaTime = timestamp - lastTimeRef.current
       lastTimeRef.current = timestamp
+      const manager = gameRef.current!
+      const state = manager.getState()
 
-      setGameState((prev) => (prev ? updateGame(prev, keysRef.current, deltaTime) : prev))
+      if (state.gameStatus === "playing") {
+        // 1. Update Game Logic (Mutable)
+        manager.update(keysRef.current, deltaTime)
+        
+        // 2. Draw directly to canvas (Bypassing React Render)
+        if (canvasRef.current) {
+            const ctx = canvasRef.current.getContext("2d")
+            if (ctx) {
+                drawGame(ctx, state)
+            }
+        }
+      }
+
+      // 3. Sync UI (Score/Lives) periodically
+      // We check if we need to show a menu or just update score
+      // Only update React state if status changed OR every 10 frames for score
+      if (
+        state.gameStatus !== uiState?.gameStatus || 
+        state.stageTimer % 10 === 0
+      ) {
+         setUiState({ ...state }) // Clone to force React update
+      }
+      
+      // 4. Check High Score Save on Game Over
+      if (state.gameStatus === "gameover" || state.gameStatus === "victory") {
+        const newHighScore = Math.max(state.highScore, state.player.score)
+        if (newHighScore > loadHighScore()) {
+            saveHighScore(newHighScore)
+        }
+      }
+
       gameLoopRef.current = requestAnimationFrame(gameLoop)
     }
 
@@ -86,18 +131,9 @@ export function Game() {
         gameLoopRef.current = null
       }
     }
-  }, [gameState])
+  }, [mounted, uiState?.gameStatus]) // Re-bind only if status changes drastically
 
-  useEffect(() => {
-    if (!gameState) return
-    if (gameState.gameStatus === "gameover" || gameState.gameStatus === "victory") {
-      const newHighScore = Math.max(gameState.highScore, gameState.player.score)
-      if (newHighScore > loadHighScore()) {
-        saveHighScore(newHighScore)
-      }
-    }
-  }, [gameState])
-
+  // Input Handling
   useEffect(() => {
     if (!mounted) return
 
@@ -106,101 +142,49 @@ export function Game() {
 
       if (
         [
-          "arrowup",
-          "arrowdown",
-          "arrowleft",
-          "arrowright",
-          "w",
-          "a",
-          "s",
-          "d",
-          "z",
-          "x",
-          " ",
-          "shift",
-          "escape",
-          "enter",
+          "arrowup", "arrowdown", "arrowleft", "arrowright",
+          "w", "a", "s", "d", "z", "x", " ", "shift", "escape", "enter",
         ].includes(key)
       ) {
         e.preventDefault()
       }
 
       switch (key) {
-        case "arrowup":
-        case "w":
-          keysRef.current.up = true
-          break
-        case "arrowdown":
-        case "s":
-          keysRef.current.down = true
-          break
-        case "arrowleft":
-        case "a":
-          keysRef.current.left = true
-          break
-        case "arrowright":
-        case "d":
-          keysRef.current.right = true
-          break
-        case "z":
-        case " ":
-          keysRef.current.shoot = true
-          break
-        case "shift":
-          keysRef.current.focus = true
-          break
-        case "x":
-          keysRef.current.bomb = true
-          break
+        case "arrowup": case "w": keysRef.current.up = true; break
+        case "arrowdown": case "s": keysRef.current.down = true; break
+        case "arrowleft": case "a": keysRef.current.left = true; break
+        case "arrowright": case "d": keysRef.current.right = true; break
+        case "z": case " ": keysRef.current.shoot = true; break
+        case "shift": keysRef.current.focus = true; break
+        case "x": keysRef.current.bomb = true; break
         case "escape":
-          setGameState((prev) => {
-            if (!prev) return prev
-            if (prev.gameStatus === "playing") return { ...prev, gameStatus: "paused" }
-            if (prev.gameStatus === "paused") return { ...prev, gameStatus: "playing" }
-            return prev
-          })
-          break
+           if (gameRef.current) {
+               const state = gameRef.current.getState()
+               if (state.gameStatus === "playing") state.gameStatus = "paused"
+               else if (state.gameStatus === "paused") state.gameStatus = "playing"
+               setUiState({ ...state }) // Update Menu UI
+           }
+           break
         case "enter":
-          setGameState((prev) => {
-            if (!prev) return prev
-            if (prev.gameStatus === "menu") {
-              const highScore = Math.max(prev.highScore, prev.player.score)
-              return { ...createInitialState(highScore), gameStatus: "playing" }
-            }
-            return prev
-          })
-          break
+           if (gameRef.current) {
+             const state = gameRef.current.getState()
+             if (state.gameStatus === "menu") {
+                startGame()
+             }
+           }
+           break
       }
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
       switch (e.key.toLowerCase()) {
-        case "arrowup":
-        case "w":
-          keysRef.current.up = false
-          break
-        case "arrowdown":
-        case "s":
-          keysRef.current.down = false
-          break
-        case "arrowleft":
-        case "a":
-          keysRef.current.left = false
-          break
-        case "arrowright":
-        case "d":
-          keysRef.current.right = false
-          break
-        case "z":
-        case " ":
-          keysRef.current.shoot = false
-          break
-        case "shift":
-          keysRef.current.focus = false
-          break
-        case "x":
-          keysRef.current.bomb = false
-          break
+        case "arrowup": case "w": keysRef.current.up = false; break
+        case "arrowdown": case "s": keysRef.current.down = false; break
+        case "arrowleft": case "a": keysRef.current.left = false; break
+        case "arrowright": case "d": keysRef.current.right = false; break
+        case "z": case " ": keysRef.current.shoot = false; break
+        case "shift": keysRef.current.focus = false; break
+        case "x": keysRef.current.bomb = false; break
       }
     }
 
@@ -211,9 +195,9 @@ export function Game() {
       window.removeEventListener("keydown", handleKeyDown)
       window.removeEventListener("keyup", handleKeyUp)
     }
-  }, [mounted])
+  }, [mounted, startGame])
 
-  if (!mounted || !gameState) {
+  if (!mounted || !uiState) {
     return (
       <div
         className="flex items-center justify-center bg-touhou-frame text-touhou-pink text-lg font-mono"
@@ -229,13 +213,14 @@ export function Game() {
       {/* Game area with maroon border frame */}
       <div className="p-2 bg-touhou-frame-inner shadow-[inset_0_0_20px_rgba(0,0,0,0.5)]">
         <div className="relative border-2 border-touhou-border" style={{ width: GAME_WIDTH, height: GAME_HEIGHT }}>
-          <GameCanvas gameState={gameState} />
+          {/* We pass the Ref directly to the Canvas Component */}
+          <GameCanvas ref={canvasRef} gameState={uiState} />
 
-          {gameState.gameStatus !== "playing" && (
+          {uiState.gameStatus !== "playing" && (
             <GameMenu
-              status={gameState.gameStatus}
-              score={gameState.player.score}
-              highScore={gameState.highScore}
+              status={uiState.gameStatus}
+              score={uiState.player.score}
+              highScore={uiState.highScore}
               onStart={startGame}
               onResume={resumeGame}
             />
@@ -245,7 +230,7 @@ export function Game() {
 
       {/* Right sidebar */}
       <div className="py-4 px-6 bg-touhou-frame min-w-[220px]">
-        <GameUI gameState={gameState} />
+        <GameUI gameState={uiState} />
       </div>
     </div>
   )

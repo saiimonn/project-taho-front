@@ -62,6 +62,7 @@ export class Player extends Entity {
   score: number
   invincible: boolean
   invincibleTimer: number
+  bombVisualTimer: number // NEW: Tracks the visual effect duration
   hitboxRadius: number
   graze: number
   point: number
@@ -69,14 +70,15 @@ export class Player extends Entity {
   
   constructor(x: number, y: number) {
     super(x, y, 32, 48);
-    this.speed = 4.5;
-    this.focusSpeed = 1.8;
+    this.speed = 2.5; 
+    this.focusSpeed = 1.2;
     this.lives = 3;
     this.bombs = 3;
     this.power = 0;
     this.score = 0;
     this.invincible = false;
     this.invincibleTimer = 0;
+    this.bombVisualTimer = 0; // Initialize
     this.hitboxRadius = 2.5;
     this.graze = 0;
     this.point = 0;
@@ -90,6 +92,11 @@ export class Player extends Entity {
       if(this.invincibleTimer <= 0) {
         this.invincible = false;
       }
+    }
+
+    // NEW: Count down the visual effect
+    if (this.bombVisualTimer > 0) {
+      this.bombVisualTimer -= 1;
     }
   }
   
@@ -119,6 +126,7 @@ export class Player extends Entity {
       this.bombs -= 1;
       this.invincible = true;
       this.invincibleTimer = 180;
+      this.bombVisualTimer = 120; // NEW: Trigger 2 seconds of visuals
       return true;
     }
     return false;
@@ -272,21 +280,18 @@ export class Enemy extends Entity {
     
     switch(this.movePattern) {
       case "straight":
-        this.y += 1.5;
+        this.y += 0.5; 
         break;
-        
       case "sine":
-        this.y += 1.2;
-        this.x += Math.sin(this.moveTimer * 2) * 2;
+        this.y += 0.4; 
+        this.x += Math.sin(this.moveTimer * 2) * 1.2;
         break;
-        
       case "circle":
-        this.x += Math.cos(this.moveTimer) * 1.5;
-        this.y += 0.8 + Math.sin(this.moveTimer) * 0.5;
+        this.x += Math.cos(this.moveTimer) * 0.8; 
+        this.y += 0.5 + Math.sin(this.moveTimer) * 0.3;
         break;
-        
       case "static":
-        if (this.y < 100) this.y += 1;
+        if (this.y < 100) this.y += 0.4;
         break;
     }
   }
@@ -297,7 +302,7 @@ export class Enemy extends Entity {
   }
   
   isAlive(): boolean {
-    return this.health < 0;
+    return this.health > 0;
   }
   
   isOutOfBounds(gameHeight: number): boolean {
@@ -319,9 +324,10 @@ export class Boss extends Entity {
   shootTimer: number
   moveTimer: number
   name: string
+  anchorX: number
   
   constructor(stage: number, gameWidth: number) {
-    super(gameWidth / 2, -60, 64, 64);
+    super(gameWidth / 2, -100, 64, 64);
     
     const patterns: BulletPattern[][] = [
       ["spiral", "radial", "aimed"],
@@ -329,24 +335,32 @@ export class Boss extends Entity {
       ["flower", "spiral", "radial", "wave"],
     ];
     
-    this.health = 100 + stage * 50;
+    this.health = 1500 + stage * 500;
     this.maxHealth = this.health;
     this.phase = 0;
     this.patterns = patterns[Math.min(stage - 1, patterns.length - 1)];
     this.currentPattern = 0;
     this.shootTimer = 0;
     this.moveTimer = 0;
-    this.name = stage === 1 ? "CIRNO" : stage === 2 ? "MARISA" : "REIMU"; //change names
+    this.name = stage === 1 ? "CIRNO" : stage === 2 ? "MARISA" : "REIMU";
+    this.anchorX = gameWidth / 2;
   }
   
   update(): void {
-    if (this.y < 80) this.y += 1;
-    
-    this.shootTimer -= 1;
-    this.moveTimer += 0.02;
-    
-    //boss movement pattern
-    this.x = this.width + Math.sin(this.moveTimer) * 150;
+    if (this.moveTimer === 0) {
+      this.y += 2.0; 
+      if (this.y >= 120) {
+        this.moveTimer = 0.01; 
+      }
+    } 
+    else {
+      this.shootTimer -= 1;
+      this.moveTimer += 0.02;
+
+      const swayDistance = this.anchorX * 0.6;
+      this.x = this.anchorX + Math.sin(this.moveTimer * 0.8) * swayDistance; 
+      this.y = 120 + Math.sin(this.moveTimer * 1.5) * 15;
+    }
     
     const healthPercent = this.health / this.maxHealth;
     if(healthPercent < 0.3 && this.phase < 2) {
@@ -368,11 +382,11 @@ export class Boss extends Entity {
   }
   
   shouldShoot(): boolean {
-    return this.shootTimer <= 0;
+    return this.moveTimer > 0 && this.shootTimer <= 0;
   }
   
   resetShootTimer(): void {
-    this.shootTimer = 20 - this.phase * 3;
+    this.shootTimer = 50 - this.phase * 5;
   }
   
   getCurrentPattern(): BulletPattern {
@@ -380,7 +394,6 @@ export class Boss extends Entity {
   }
 }
 
-//POWER UP CLASS
 export class PowerUp extends Entity {
   vy: number
   type: PowerUpType
@@ -427,8 +440,6 @@ export class PowerUp extends Entity {
     }
   }
 }
-
-//game state interfaces
 
 export interface GameState {
   player: Player
