@@ -5,6 +5,7 @@ import {
   Enemy,
   Boss,
   PowerUp,
+  Particle,
   type GameState,
   type Keys,
   type EnemyType,
@@ -18,7 +19,6 @@ export const GAME_WIDTH = 600
 export const GAME_HEIGHT = 800
 const PLAYER_MARGIN = 16
 
-// Game Manager class
 export class GameManager {
   private state: GameState
   private patterns: BulletPattern[] = ["aimed", "radial", "spiral", "random", "wave"]
@@ -29,7 +29,6 @@ export class GameManager {
     this.state = this.createInitialState(highScore)
   }
 
-  // Get current state directly
   getState(): GameState {
     return this.state
   }
@@ -42,9 +41,11 @@ export class GameManager {
       enemies: [],
       boss: null,
       powerUps: [],
+      particles: [],
+      screenShake: 0,
       gameStatus: "menu",
-      stage: 1,
-      stageTimer: 0,
+      stage: 1, // changed for testing purposes 
+      stageTimer: 0, // changed for testing purposes
       highScore,
       time: 0,
       difficulty: "normal",
@@ -63,6 +64,11 @@ export class GameManager {
 
     this.state.stageTimer += 1
     this.state.time += 1
+    
+    if (this.state.screenShake > 0) {
+      this.state.screenShake *= 0.9;
+      if (this.state.screenShake < 0.5) this.state.screenShake = 0;
+    }
 
     this.updatePlayer(keys)
     this.handlePlayerShooting(keys)
@@ -75,6 +81,12 @@ export class GameManager {
     this.updateHighScore()
     this.checkGameOver()
     this.limitBullets()
+  }
+
+  private spawnParticles(x: number, y: number, count: number, color: string, type: "spark" | "energy") {
+    for(let i=0; i<count; i++) {
+      this.state.particles.push(new Particle(x, y, color, type))
+    }
   }
 
   private updatePlayer(keys: Keys): void {
@@ -103,10 +115,8 @@ export class GameManager {
     const bullets: PlayerBullet[] = []
     const power = Math.min(player.power, 4)
 
-    // Center bullet
     bullets.push(new PlayerBullet(player.x, player.y - 20, -12, 8, 16, 1))
 
-    // Side bullets
     if (power >= 1) {
       bullets.push(new PlayerBullet(player.x - 15, player.y - 15, -11, 6, 12, 1))
       bullets.push(new PlayerBullet(player.x + 15, player.y - 15, -11, 6, 12, 1))
@@ -124,6 +134,9 @@ export class GameManager {
     if (keys.bomb && this.state.player.useBomb()) {
       this.state.bullets = []
       this.state.enemies.forEach((e) => e.takeDamage(10))
+      
+      this.state.screenShake = 15;
+      
       if (this.state.boss) {
         this.state.boss.takeDamage(20)
       }
@@ -133,19 +146,16 @@ export class GameManager {
   private spawnEnemies(): void {
     const { stageTimer, stage, boss, enemies } = this.state
 
-    // Spawn Boss (after 30 seconds)
     if (stageTimer === 1800 && !boss) {
       this.state.boss = new Boss(stage, GAME_WIDTH)
       this.state.bullets = []
+      this.state.screenShake = 10;
       return
     }
 
-    // No enemies during boss fight
     if (boss) return
 
-    // Cap enemies
     if (enemies.length < 12) {
-      // 1. Random Spawns 
       if (stageTimer > 10 && stageTimer % 60 === 0) { 
         const enemyType = this.types[Math.floor(Math.random() * Math.min(stage, this.types.length))]!
         const pattern = this.patterns[Math.floor(Math.random() * this.patterns.length)]!
@@ -161,7 +171,6 @@ export class GameManager {
         this.state.enemies.push(newEnemy)
       }
 
-      // 2. Formation Spawns
       if (stageTimer > 60 && stageTimer % 300 === 150) {
         const count = 3 + stage
         for (let i = 0; i < count; i++) {
@@ -179,7 +188,10 @@ export class GameManager {
   }
 
   private updateEntities(): void {
-    // Update enemies
+    this.state.particles = this.state.particles
+      .map(p => { p.update(); return p; })
+      .filter(p => p.life > 0)
+
     this.state.enemies = this.state.enemies
       .map((e) => {
         e.update()
@@ -187,15 +199,26 @@ export class GameManager {
       })
       .filter((e) => !e.isOutOfBounds(GAME_HEIGHT) && e.isAlive())
 
-    // Update boss
     if (this.state.boss) {
       this.state.boss.update()
+      
+      if (this.state.boss.shootTimer < 60 && this.state.boss.shootTimer > 0) {
+         if (this.state.boss.shootTimer % 5 === 0) {
+            this.spawnParticles(
+                this.state.boss.x + (Math.random() - 0.5) * 100, 
+                this.state.boss.y + (Math.random() - 0.5) * 100,
+                1,
+                "#ff00ff",
+                "energy"
+            )
+         }
+      }
+      
       if (!this.state.boss.isAlive()) {
         this.handleBossDeath()
       }
     }
 
-    // Update bullets
     this.state.bullets = this.state.bullets
       .map((b) => {
         b.update()
@@ -203,7 +226,6 @@ export class GameManager {
       })
       .filter((b) => !b.isOutOfBounds(GAME_WIDTH, GAME_HEIGHT))
 
-    // Update player bullets
     this.state.playerBullets = this.state.playerBullets
       .map((b) => {
         b.update()
@@ -211,7 +233,6 @@ export class GameManager {
       })
       .filter((b) => !b.isOutOfBounds())
 
-    // Update power-ups
     this.state.powerUps = this.state.powerUps
       .map((p) => {
         p.update()
@@ -248,6 +269,9 @@ export class GameManager {
       )
       this.state.bullets.push(...newBullets)
       this.state.boss.resetShootTimer()
+      
+      this.spawnParticles(this.state.boss.x, this.state.boss.y, 20, "#ffffff", "spark")
+      this.state.screenShake = 5;
     }
   }
 
@@ -255,6 +279,9 @@ export class GameManager {
     if (!this.state.boss) return
 
     this.state.player.addScore(10000)
+    
+    this.spawnParticles(this.state.boss.x, this.state.boss.y, 100, "#ff0088", "spark")
+    this.state.screenShake = 20;
 
     this.state.powerUps.push(
       new PowerUp(this.state.boss.x - 20, this.state.boss.y, "power"),
@@ -287,12 +314,15 @@ export class GameManager {
     this.state.playerBullets = this.state.playerBullets.filter((pb) => {
       let hit = false
       
-      // Hit Enemies
       for (const enemy of this.state.enemies) {
         if (pb.checkCollision(enemy)) {
           const killed = enemy.takeDamage(pb.damage)
+          this.spawnParticles(pb.x, pb.y, 3, "#ffffff", "spark")
+          
           if (killed) {
             player.addScore(enemy.points)
+            this.spawnParticles(enemy.x, enemy.y, 15, "#ffaa00", "spark")
+            
             if (Math.random() < 0.3) {
               const types: PowerUpType[] = ["power", "power", "point", "point", "bomb"]
               const type = types[Math.floor(Math.random() * types.length)]! 
@@ -306,9 +336,9 @@ export class GameManager {
         }
       }
 
-      // Hit Boss
       if (!hit && this.state.boss && pb.checkCollision(this.state.boss)) {
         this.state.boss.takeDamage(pb.damage)
+        this.spawnParticles(pb.x, pb.y, 1, "#aaaaff", "spark")
         player.addScore(10)
         hit = true
       }
@@ -327,6 +357,8 @@ export class GameManager {
     for (const bullet of this.state.bullets) {
       if (bullet.checkCollisionWithPlayer(player)) {
         player.takeDamage()
+        this.state.screenShake = 15;
+        this.spawnParticles(player.x, player.y, 30, "#ff0000", "spark")
         player.setPosition(GAME_WIDTH / 2, GAME_HEIGHT - 80)
         this.state.bullets = []
         break
@@ -352,6 +384,7 @@ export class GameManager {
     this.state.bullets.forEach((bullet) => {
       if (bullet.checkGrazeWithPlayer(player)) {
         player.addGraze()
+        this.spawnParticles(player.x, player.y, 1, "#ffffff", "spark")
       }
     })
   }
@@ -368,7 +401,6 @@ export class GameManager {
     }
   }
 
-  // FIXED: Increased limit from 500 to 2000
   private limitBullets(): void {
     if (this.state.bullets.length > 2000) {
       this.state.bullets = this.state.bullets.slice(-2000)

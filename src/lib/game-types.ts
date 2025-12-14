@@ -3,19 +3,24 @@ export interface Vector2D {
   y: number
 }
 
-export type BulletColor = "pink" | "cyan" | "yellow" | "green" | "red" | "white"
-export type BulletType = "circle" | "rice" | "kunai" | "star" | "orb"
+export type BulletColor = "pink" | "cyan" | "yellow" | "green" | "red" | "white" | "blue"
+export type BulletType = "circle" | "rice" | "kunai" | "star" | "orb" | "ice"
 export type EnemyType = "fairy" | "ghost" | "spirit"
 export type PowerUpType = "power" | "point" | "bomb" | "life"
-export type BulletPattern = "spiral" | "radial" | "aimed" | "random" | "wave" | "flower"
+
+export type BulletPattern = 
+  | "spiral" | "radial" | "aimed" | "random" | "wave" | "flower" 
+  | "icicle" | "perfect-freeze" | "diamond-blizzard" 
+  | "vampire-night" | "red-magic" | "scarlet-gungnir"
+
 export type MovePattern = "straight" | "sine" | "circle" | "static"
+export type ParticleType = "spark" | "smoke" | "ring" | "energy"
 
 let entityIdCounter = 0;
 export function generateEntityId(): string {
   return `entitity-${entityIdCounter++}`;
 }
 
-//Base Entity Class
 export abstract class Entity {
   id: string
   x: number
@@ -52,7 +57,54 @@ export abstract class Entity {
   }
 }
 
-//Player Class
+export class Particle extends Entity {
+  vx: number
+  vy: number
+  life: number
+  maxLife: number
+  color: string
+  size: number
+  type: ParticleType
+
+  constructor(x: number, y: number, color: string, type: ParticleType) {
+    super(x, y, 0, 0)
+    this.color = color
+    this.type = type
+    
+    const angle = Math.random() * Math.PI * 2
+    const speed = Math.random() * 2 + 0.5
+    
+    if (type === "spark") {
+      this.vx = Math.cos(angle) * speed * 3
+      this.vy = Math.sin(angle) * speed * 3
+      this.life = 30 + Math.random() * 20
+      this.size = 2 + Math.random() * 3
+    } else if (type === "energy") {
+      this.vx = (Math.random() - 0.5) * 1
+      this.vy = (Math.random() - 0.5) * 1 - 2 
+      this.life = 40 + Math.random() * 20
+      this.size = 4 + Math.random() * 4
+    } else {
+      this.vx = Math.cos(angle) * speed
+      this.vy = Math.sin(angle) * speed
+      this.life = 40
+      this.size = 3
+    }
+    this.maxLife = this.life
+  }
+
+  update(): void {
+    this.x += this.vx
+    this.y += this.vy
+    this.life -= 1
+    this.vx *= 0.95
+    this.vy *= 0.95
+    if (this.life < 10) {
+      this.size *= 0.8
+    }
+  }
+}
+
 export class Player extends Entity {
   speed: number
   focusSpeed: number
@@ -62,7 +114,7 @@ export class Player extends Entity {
   score: number
   invincible: boolean
   invincibleTimer: number
-  bombVisualTimer: number // NEW: Tracks the visual effect duration
+  bombVisualTimer: number
   hitboxRadius: number
   graze: number
   point: number
@@ -78,7 +130,7 @@ export class Player extends Entity {
     this.score = 0;
     this.invincible = false;
     this.invincibleTimer = 0;
-    this.bombVisualTimer = 0; // Initialize
+    this.bombVisualTimer = 0; 
     this.hitboxRadius = 2.5;
     this.graze = 0;
     this.point = 0;
@@ -88,13 +140,10 @@ export class Player extends Entity {
   update(deltaTime?: number): void {
     if(this.invincible) {
       this.invincibleTimer -= 1;
-      
       if(this.invincibleTimer <= 0) {
         this.invincible = false;
       }
     }
-
-    // NEW: Count down the visual effect
     if (this.bombVisualTimer > 0) {
       this.bombVisualTimer -= 1;
     }
@@ -126,7 +175,7 @@ export class Player extends Entity {
       this.bombs -= 1;
       this.invincible = true;
       this.invincibleTimer = 180;
-      this.bombVisualTimer = 120; // NEW: Trigger 2 seconds of visuals
+      this.bombVisualTimer = 120; 
       return true;
     }
     return false;
@@ -172,7 +221,6 @@ export class Player extends Entity {
   }
 }
 
-//Bullet class
 export class Bullet extends Entity {
   vx: number
   vy: number
@@ -218,7 +266,6 @@ export class Bullet extends Entity {
   }
 }
 
-// Player Bullet class
 export class PlayerBullet extends Entity {
   vy: number
   damage: number
@@ -238,7 +285,6 @@ export class PlayerBullet extends Entity {
   }
 }
 
-//Enemy class
 export class Enemy extends Entity {
   health: number
   maxHealth: number
@@ -305,16 +351,15 @@ export class Enemy extends Entity {
     return this.health > 0;
   }
   
-  isOutOfBounds(gameHeight: number): boolean {
-    return this.y > gameHeight + 50;
-  }
-  
   shouldShoot(): boolean {
     return this.shootTimer <= 0;
   }
+
+  isOutOfBounds(gameHeight: number): boolean {
+    return this.y > gameHeight + 50; 
+  }
 }
 
-//boss class
 export class Boss extends Entity {
   health: number
   maxHealth: number
@@ -325,25 +370,37 @@ export class Boss extends Entity {
   moveTimer: number
   name: string
   anchorX: number
+  stageIndex: number 
+  
+  cycleTimer: number 
+  isResting: boolean
   
   constructor(stage: number, gameWidth: number) {
     super(gameWidth / 2, -100, 64, 64);
     
     const patterns: BulletPattern[][] = [
-      ["spiral", "radial", "aimed"],
-      ["flower", "spiral", "radial"],
-      ["flower", "spiral", "radial", "wave"],
+      ["icicle", "perfect-freeze", "diamond-blizzard"],
+      ["vampire-night", "red-magic", "scarlet-gungnir"],
+      ["flower", "spiral", "radial", "wave"], // Stage 3 Placeholder
     ];
     
-    this.health = 1500 + stage * 500;
+    this.stageIndex = stage;
+    
+    
+    this.health = 2000 + stage * 1000; // 500 for testing
+    
     this.maxHealth = this.health;
     this.phase = 0;
     this.patterns = patterns[Math.min(stage - 1, patterns.length - 1)];
     this.currentPattern = 0;
     this.shootTimer = 0;
     this.moveTimer = 0;
-    this.name = stage === 1 ? "CIRNO" : stage === 2 ? "MARISA" : "REIMU";
+    
+    this.name = stage === 1 ? "CIRNO" : stage === 2 ? "REMILIA" : "REIMU";
     this.anchorX = gameWidth / 2;
+    
+    this.cycleTimer = 0;
+    this.isResting = false;
   }
   
   update(): void {
@@ -357,9 +414,32 @@ export class Boss extends Entity {
       this.shootTimer -= 1;
       this.moveTimer += 0.02;
 
-      const swayDistance = this.anchorX * 0.6;
-      this.x = this.anchorX + Math.sin(this.moveTimer * 0.8) * swayDistance; 
-      this.y = 120 + Math.sin(this.moveTimer * 1.5) * 15;
+      // CIRNO SPECIFIC REST LOGIC (STAGE 1 Only)
+      if (this.stageIndex === 1 && this.phase === 0) {
+        this.cycleTimer++;
+        const ATTACK_DURATION = 300; 
+        const REST_DURATION = 180;   
+        
+        if (!this.isResting) {
+            if (this.cycleTimer >= ATTACK_DURATION) {
+            this.isResting = true;
+            this.cycleTimer = 0;
+            }
+        } else {
+            if (this.cycleTimer >= REST_DURATION) {
+            this.isResting = false;
+            this.cycleTimer = 0;
+            }
+        }
+      } else {
+        // Remilia (Stage 2) never rests!
+        this.isResting = false; 
+        this.cycleTimer = 0;
+      }
+
+      const swayDistance = 50; 
+      this.x = this.anchorX + Math.sin(this.moveTimer * 0.5) * swayDistance; 
+      this.y = 120 + Math.sin(this.moveTimer * 1.0) * 10;
     }
     
     const healthPercent = this.health / this.maxHealth;
@@ -382,11 +462,23 @@ export class Boss extends Entity {
   }
   
   shouldShoot(): boolean {
-    return this.moveTimer > 0 && this.shootTimer <= 0;
+    return this.moveTimer > 0 && this.shootTimer <= 0 && !this.isResting;
   }
   
   resetShootTimer(): void {
-    this.shootTimer = 50 - this.phase * 5;
+    const pattern = this.patterns[this.currentPattern];
+    
+    if (pattern === "scarlet-gungnir") {
+      this.shootTimer = 120; // UPDATED: Slower firerate (2 seconds)
+    } else if (pattern === "vampire-night") {
+      this.shootTimer = 15; 
+    } else if (pattern === "icicle") {
+      this.shootTimer = 10;
+    } else if (pattern === "perfect-freeze") {
+      this.shootTimer = 60;
+    } else {
+      this.shootTimer = 45;
+    }
   }
   
   getCurrentPattern(): BulletPattern {
@@ -448,6 +540,8 @@ export interface GameState {
   enemies: Enemy[]
   boss: Boss | null
   powerUps: PowerUp[]
+  particles: Particle[]
+  screenShake: number
   gameStatus: "menu" | "playing" | "paused" | "gameover" | "victory"
   stage: number
   stageTimer: number

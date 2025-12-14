@@ -87,30 +87,140 @@ export class BulletPatternGenerator {
     return bullets;
   }
   
-  // -- BOSS PATTERNS (INCREASED DENSITY) --
+  // -- BOSS PATTERNS --
   static generateBossPattern(boss: Boss, targetX: number, targetY: number, timer: number): Bullet[] {
     const pattern = boss.getCurrentPattern();
     switch(pattern) {
+      // CIRNO (Stage 1)
+      case "icicle": return this.generateCirnoIcicle(boss, timer);
+      case "perfect-freeze": return this.generateCirnoFreeze(boss);
+      case "diamond-blizzard": return this.generateCirnoDiamond(boss, timer);
+
+      // REMILIA (Stage 2)
+      case "vampire-night": return this.generateRemiliaVampire(boss, timer, targetX, targetY);
+      case "red-magic": return this.generateRemiliaRedMagic(boss, timer);
+      case "scarlet-gungnir": return this.generateRemiliaGungnir(boss, targetX, targetY);
+      
+      // Fallbacks
       case "spiral": return this.generateBossSpiral(boss, timer);
       case "radial": return this.generateBossRadial(boss, timer);
       case "flower": return this.generateBossFlower(boss, timer);
       default: return this.generateBossAimed(boss, targetX, targetY);
     }
   }
+
+  // --- CIRNO PATTERNS ---
+  private static generateCirnoIcicle(boss: Boss, timer: number): Bullet[] {
+    const bullets: Bullet[] = []
+    const streams = 6 
+    const baseAngle = Math.PI / 2 
+    const wave = Math.sin(timer * 0.05) * 0.3
+
+    for (let i = 0; i < streams; i++) {
+      const offset = (i - (streams - 1) / 2) * 0.25 
+      const angle = baseAngle + offset + wave
+      
+      bullets.push(this.createBullet(boss.x, boss.y, angle, 1.5, "yellow", "rice", 6))
+      bullets.push(this.createBullet(boss.x, boss.y, angle, 1.2, "white", "rice", 5))
+    }
+    return bullets
+  }
+
+  private static generateCirnoFreeze(boss: Boss): Bullet[] {
+    const bullets: Bullet[] = []
+    const count = 40 
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2
+      const speed = 0.5 + Math.random() * 1.0 
+      const color: BulletColor = Math.random() > 0.5 ? "cyan" : "white"
+      bullets.push(this.createBullet(boss.x, boss.y, angle, speed, color, "circle", 8))
+    }
+    return bullets
+  }
+
+  private static generateCirnoDiamond(boss: Boss, timer: number): Bullet[] {
+    const bullets: Bullet[] = []
+    const arms = 8
+    const baseAngle = timer * 0.1 
+
+    for (let i = 0; i < arms; i++) {
+      const angle = baseAngle + (i * Math.PI * 2) / arms
+      bullets.push(this.createBullet(boss.x, boss.y, angle, 1.8, "blue", "ice", 8)) 
+      bullets.push(this.createBullet(boss.x, boss.y, angle - 0.1, 1.5, "cyan", "ice", 6)) 
+      bullets.push(this.createBullet(boss.x, boss.y, angle + 0.1, 1.5, "cyan", "ice", 6))
+      
+      const circleAngle = angle + (Math.PI / arms)
+      bullets.push(this.createBullet(boss.x, boss.y, circleAngle, 1.2, "white", "circle", 7))
+    }
+    return bullets
+  }
+
+  // --- REMILIA PATTERNS ---
+
+  // Phase 1: Vampire Night
+  private static generateRemiliaVampire(boss: Boss, timer: number, tx: number, ty: number): Bullet[] {
+    const bullets: Bullet[] = []
+    const angleToPlayer = Math.atan2(ty - boss.y, tx - boss.x)
+    const spread = Math.sin(timer * 0.1) * 0.5 
+    
+    for(let i = -1; i <= 1; i++) {
+      const angle = angleToPlayer + spread + (i * 0.3)
+      bullets.push(this.createBullet(boss.x, boss.y, angle, 1.6, "red", "rice", 6))
+      bullets.push(this.createBullet(boss.x, boss.y, angle - 0.05, 1.3, "pink", "rice", 6))
+    }
+    return bullets
+  }
+
+  // Phase 2: Red Magic
+  private static generateRemiliaRedMagic(boss: Boss, timer: number): Bullet[] {
+    const bullets: Bullet[] = []
+    const count = 16
+    const offset = timer * 0.05 
+    
+    for (let i = 0; i < count; i++) {
+      const angle = (i * Math.PI * 2) / count + offset
+      const color: BulletColor = i % 2 === 0 ? "red" : "pink"
+      const speed = i % 2 === 0 ? 1.3 : 0.9
+      
+      bullets.push(this.createBullet(boss.x, boss.y, angle, speed, color, "orb", 8))
+    }
+    return bullets
+  }
+
+  // Phase 3: Scarlet Gungnir
+  private static generateRemiliaGungnir(boss: Boss, tx: number, ty: number): Bullet[] {
+    const bullets: Bullet[] = []
+    const angle = Math.atan2(ty - boss.y, tx - boss.x)
+    
+    // Main "Spear" - Fast line of bullets
+    for(let i=0; i<5; i++) {
+      bullets.push(this.createBullet(boss.x, boss.y, angle, 2.2 + i * 0.3, "red", "kunai", 8))
+    }
+    
+    // Side "Shockwaves" - NOW OFFSET TO SPAWN ALONG THE SPEAR
+    for(let i=0; i<8; i++) {
+        // Calculate a point further down the spear's path
+        const distanceAlongSpear = 20 + Math.random() * 150
+        const spawnX = boss.x + Math.cos(angle) * distanceAlongSpear
+        const spawnY = boss.y + Math.sin(angle) * distanceAlongSpear
+        
+        // Shoot perpendicular/randomly away from that point
+        const shockAngle = angle + (Math.random() - 0.5) * 1.5 
+        bullets.push(this.createBullet(spawnX, spawnY, shockAngle, 0.8 + Math.random() * 0.7, "white", "rice", 4))
+    }
+    
+    return bullets
+  }
   
+  // -- GENERIC BOSS PATTERNS (Backup) --
   private static generateBossSpiral(boss: Boss, timer: number): Bullet[] {
     const bullets: Bullet[] = []
-    // INCREASED: More arms (Was 4 -> 8)
     const arms = 8 + boss.phase * 2
-
-    // Forward spiral
     for (let arm = 0; arm < arms; arm++) {
       const baseAngle = timer * 0.06 + (arm * Math.PI * 2) / arms
       const color: BulletColor = arm % 2 === 0 ? "red" : "white"
       bullets.push(this.createBullet(boss.x, boss.y, baseAngle, 0.9, color, "rice", 7))
     }
-
-    // Reverse spiral
     for (let arm = 0; arm < arms; arm++) {
       const baseAngle = -timer * 0.06 + (arm * Math.PI * 2) / arms + 0.3
       bullets.push(this.createBullet(boss.x, boss.y, baseAngle, 0.8, "red", "rice", 6))
@@ -120,14 +230,10 @@ export class BulletPatternGenerator {
     
   private static generateBossRadial(boss: Boss, timer: number): Bullet[] {
     const bullets: Bullet[] = []
-    // INCREASED: More rings
     const rings = 3 + boss.phase 
-
     for (let ring = 0; ring < rings; ring++) {
-      // INCREASED: Bullets per ring (Was 10 -> 20)
       const count = 20 + ring * 4 
       const offset = ring * 0.08
-
       for (let i = 0; i < count; i++) {
         const angle = (i * Math.PI * 2) / count + offset + timer * 0.02
         const speed = 0.8 + ring * 0.2
@@ -140,10 +246,8 @@ export class BulletPatternGenerator {
     
   private static generateBossFlower(boss: Boss, timer: number): Bullet[] {
     const bullets: Bullet[] = []
-    // INCREASED: More petals (Was 6 -> 12)
     const petals = 12 + boss.phase * 2
     const layers = 2
-
     for (let layer = 0; layer < layers; layer++) {
       for (let petal = 0; petal < petals; petal++) {
         const baseAngle = timer * 0.03 * (layer % 2 === 0 ? 1 : -1)
@@ -159,9 +263,7 @@ export class BulletPatternGenerator {
   private static generateBossAimed(boss: Boss, targetX: number, targetY: number): Bullet[] {
     const bullets: Bullet[] = []
     const angle = Math.atan2(targetY - boss.y, targetX - boss.x)
-    // INCREASED: Wider spread
     const spread = 5 + boss.phase
-
     for (let i = -spread; i <= spread; i++) {
       const bulletAngle = angle + i * 0.06 
       const speed = 1.4 + Math.abs(i) * 0.04
