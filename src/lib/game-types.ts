@@ -4,7 +4,7 @@ export interface Vector2D {
 }
 
 export type BulletColor = "pink" | "cyan" | "yellow" | "green" | "red" | "white" | "blue"
-export type BulletType = "circle" | "rice" | "kunai" | "star" | "orb" | "ice"
+export type BulletType = "circle" | "rice" | "kunai" | "star" | "orb" | "ice" | "laser"
 export type EnemyType = "fairy" | "ghost" | "spirit"
 export type PowerUpType = "power" | "point" | "bomb" | "life"
 
@@ -12,6 +12,7 @@ export type BulletPattern =
   | "spiral" | "radial" | "aimed" | "random" | "wave" | "flower" 
   | "icicle" | "perfect-freeze" | "diamond-blizzard" 
   | "vampire-night" | "red-magic" | "scarlet-gungnir"
+  | "stardust-reverie" | "non-directional-laser" | "master-spark"
 
 export type MovePattern = "straight" | "sine" | "circle" | "static"
 export type ParticleType = "spark" | "smoke" | "ring" | "energy"
@@ -371,23 +372,32 @@ export class Boss extends Entity {
   name: string
   anchorX: number
   stageIndex: number 
+  gameWidth: number
+  
+  // Movement Logic
+  destX: number = -1
+  destY: number = -1
+  moveWait: number = 0
+  
+  // Phase Transitions
+  transitionTimer: number = 0
+  pendingPhase: number = -1
   
   cycleTimer: number 
   isResting: boolean
   
   constructor(stage: number, gameWidth: number) {
     super(gameWidth / 2, -100, 64, 64);
+    this.gameWidth = gameWidth;
     
     const patterns: BulletPattern[][] = [
       ["icicle", "perfect-freeze", "diamond-blizzard"],
       ["vampire-night", "red-magic", "scarlet-gungnir"],
-      ["flower", "spiral", "radial", "wave"], // Stage 3 Placeholder
+      ["stardust-reverie", "non-directional-laser", "master-spark"], 
     ];
     
     this.stageIndex = stage;
-    
-    
-    this.health = 2000 + stage * 1000; // 500 for testing
+    this.health = 2000 + stage * 1000;
     
     this.maxHealth = this.health;
     this.phase = 0;
@@ -396,7 +406,7 @@ export class Boss extends Entity {
     this.shootTimer = 0;
     this.moveTimer = 0;
     
-    this.name = stage === 1 ? "CIRNO" : stage === 2 ? "REMILIA" : "REIMU";
+    this.name = stage === 1 ? "CIRNO" : stage === 2 ? "REMILIA" : "MARISA";
     this.anchorX = gameWidth / 2;
     
     this.cycleTimer = 0;
@@ -404,55 +414,109 @@ export class Boss extends Entity {
   }
   
   update(): void {
+    // 1. Entrance Animation
     if (this.moveTimer === 0) {
       this.y += 2.0; 
       if (this.y >= 120) {
         this.moveTimer = 0.01; 
       }
-    } 
-    else {
-      this.shootTimer -= 1;
-      this.moveTimer += 0.02;
-
-      // CIRNO SPECIFIC REST LOGIC (STAGE 1 Only)
-      if (this.stageIndex === 1 && this.phase === 0) {
-        this.cycleTimer++;
-        const ATTACK_DURATION = 300; 
-        const REST_DURATION = 180;   
-        
-        if (!this.isResting) {
-            if (this.cycleTimer >= ATTACK_DURATION) {
-            this.isResting = true;
-            this.cycleTimer = 0;
-            }
-        } else {
-            if (this.cycleTimer >= REST_DURATION) {
-            this.isResting = false;
-            this.cycleTimer = 0;
-            }
-        }
-      } else {
-        // Remilia (Stage 2) never rests!
-        this.isResting = false; 
-        this.cycleTimer = 0;
-      }
-
-      const swayDistance = 50; 
-      this.x = this.anchorX + Math.sin(this.moveTimer * 0.5) * swayDistance; 
-      this.y = 120 + Math.sin(this.moveTimer * 1.0) * 10;
+      return;
     }
     
+    this.shootTimer -= 1;
+    this.moveTimer += 0.02;
+
+    // 2. MARISA PHASE 3 MOVEMENT
+    if (this.name === "MARISA" && this.phase === 2 && this.transitionTimer <= 0) {
+        this.cycleTimer++; 
+        if (this.cycleTimer >= 1680) this.cycleTimer = 0; 
+
+        if (this.moveWait > 0) {
+            this.moveWait--;
+        } else {
+            if (this.destX === -1) {
+                this.destX = 60 + Math.random() * (this.gameWidth - 120);
+                this.destY = 60 + Math.random() * 120;
+            }
+            const dx = this.destX - this.x;
+            const dy = this.destY - this.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const speed = 5.0; 
+
+            if (dist < speed) {
+                this.x = this.destX;
+                this.y = this.destY;
+                this.destX = -1; 
+                this.moveWait = 180; 
+            } else {
+                this.x += (dx / dist) * speed;
+                this.y += (dy / dist) * speed;
+            }
+        }
+    } 
+    // 3. STANDARD MOVEMENT
+    else {
+        // Cirno specific logic
+        if (this.stageIndex === 1 && this.phase === 0) {
+            this.cycleTimer++;
+            const ATTACK_DURATION = 300; 
+            const REST_DURATION = 180;   
+            
+            if (!this.isResting) {
+                if (this.cycleTimer >= ATTACK_DURATION) {
+                this.isResting = true;
+                this.cycleTimer = 0;
+                }
+            } else {
+                if (this.cycleTimer >= REST_DURATION) {
+                this.isResting = false;
+                this.cycleTimer = 0;
+                }
+            }
+        } else {
+            this.isResting = false; 
+        }
+
+        const swayDistance = 50; 
+        this.x = this.anchorX + Math.sin(this.moveTimer * 0.5) * swayDistance; 
+        this.y = 120 + Math.sin(this.moveTimer * 1.0) * 10;
+    }
+    
+    // 4. PHASE TRANSITIONS (With 5s Rest)
     const healthPercent = this.health / this.maxHealth;
-    if(healthPercent < 0.3 && this.phase < 2) {
-      this.phase = 2;
-      this.currentPattern = (this.currentPattern + 1) % this.patterns.length;
-    } else if(healthPercent < 0.6 && this.phase < 1) {
-      this.phase = 1;
-      this.currentPattern = (this.currentPattern + 1) % this.patterns.length;
+    
+    // Check if we need to start transition
+    if (this.transitionTimer === 0) {
+        if (healthPercent < 0.3 && this.phase < 2) {
+            this.transitionTimer = 300; // 5 Seconds (60fps * 5)
+            this.pendingPhase = 2;
+        } else if (healthPercent < 0.6 && this.phase < 1) {
+            this.transitionTimer = 300; // 5 Seconds
+            this.pendingPhase = 1;
+        }
+    }
+
+    // Execute Transition
+    if (this.transitionTimer > 0) {
+        this.transitionTimer--;
+        
+        // When timer hits 0, apply the change
+        if (this.transitionTimer <= 0 && this.pendingPhase !== -1) {
+            this.phase = this.pendingPhase;
+            this.currentPattern = (this.currentPattern + 1) % this.patterns.length;
+            this.pendingPhase = -1;
+            
+            // Marisa P3 Specific Reset
+            if (this.name === "MARISA" && this.phase === 2) {
+                this.cycleTimer = 0; 
+                this.moveWait = 60; 
+            }
+        }
     }
   }
   
   takeDamage(damage: number): boolean {
+    if (this.transitionTimer > 0) return false; // Invincible during transition
     this.health -= damage;
     return this.health <= 0;
   }
@@ -462,14 +526,27 @@ export class Boss extends Entity {
   }
   
   shouldShoot(): boolean {
-    return this.moveTimer > 0 && this.shootTimer <= 0 && !this.isResting;
+    // Stop shooting if moving entrance, cooldown, resting, or transitioning
+    return this.moveTimer > 0 && 
+           this.shootTimer <= 0 && 
+           !this.isResting && 
+           this.transitionTimer <= 0;
   }
   
   resetShootTimer(): void {
     const pattern = this.patterns[this.currentPattern];
     
-    if (pattern === "scarlet-gungnir") {
-      this.shootTimer = 120; // UPDATED: Slower firerate (2 seconds)
+    // MARISA TIMERS
+    if (pattern === "master-spark") {
+      this.shootTimer = 240; 
+    } else if (pattern === "non-directional-laser") {
+      this.shootTimer = 60; 
+    } else if (pattern === "stardust-reverie") {
+      this.shootTimer = 8; 
+    }
+    // Existing timers
+    else if (pattern === "scarlet-gungnir") {
+      this.shootTimer = 120;
     } else if (pattern === "vampire-night") {
       this.shootTimer = 15; 
     } else if (pattern === "icicle") {

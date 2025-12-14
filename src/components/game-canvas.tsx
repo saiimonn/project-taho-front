@@ -119,7 +119,6 @@ export function drawGame(ctx: CanvasRenderingContext2D, gameState: GameState) {
   ctx.restore()
 }
 
-// This Component is now just a wrapper for the ref
 export const GameCanvas = forwardRef<HTMLCanvasElement>((props, ref) => {
   return (
     <canvas
@@ -237,6 +236,29 @@ function drawBullet(ctx: CanvasRenderingContext2D, bullet: Bullet) {
     ctx.closePath()
     ctx.fill()
     ctx.shadowBlur = 0 
+  } else if (bullet.type === "laser") {
+    // NEW LASER DRAWING LOGIC
+    const angle = bullet.angle || Math.atan2(bullet.vy, bullet.vx)
+    ctx.rotate(angle + Math.PI / 2)
+    
+    // Outer Glow
+    ctx.shadowColor = colors.glow
+    ctx.shadowBlur = 15
+    ctx.fillStyle = colors.fill
+    
+    // Draw a long, thin beam
+    const length = bullet.radius * 8 
+    const width = bullet.radius
+    
+    ctx.beginPath()
+    ctx.rect(-width/2, -length/2, width, length)
+    ctx.fill()
+    
+    // Inner white core
+    ctx.shadowBlur = 0
+    ctx.fillStyle = "#ffffff"
+    ctx.fillRect(-width/4, -length/2 + 2, width/2, length - 4)
+
   } else {
     ctx.fillStyle = colors.glow
     ctx.beginPath()
@@ -332,45 +354,146 @@ function drawBoss(ctx: CanvasRenderingContext2D, boss: NonNullable<GameState["bo
     ctx.restore()
   }
 
-  // Ice Aura
-  ctx.strokeStyle = "#88ccff44"
-  ctx.lineWidth = 3
-  for (let i = 0; i < 3; i++) {
+  // --- DRAWING PENTAGRAM (For Marisa's Non-Directional Laser) ---
+  const currentPattern = boss.patterns[boss.currentPattern];
+  if (boss.name === "MARISA" && currentPattern === "non-directional-laser") {
+    ctx.save()
+    const numPoints = 5
+    const orbitRadius = 90
+    
+    // FASTER SPIN: 0.04 (Visual match)
+    const orbitSpeed = timer * 0.04
+    
+    // Draw connecting lines (The Star Shape)
     ctx.beginPath()
-    ctx.arc(0, 0, 30 + i * 8 + Math.sin(timer * 0.1 + i) * 4, 0, Math.PI * 2)
+    ctx.strokeStyle = "#ffdd44aa" // Translucent yellow
+    ctx.lineWidth = 2
+    for(let k = 0; k < numPoints; k++) {
+        // We connect every 2nd point to form a star (0 -> 2 -> 4 -> 1 -> 3 -> 0)
+        const idx = (k * 2) % numPoints 
+        const angle = orbitSpeed + (idx * Math.PI * 2) / numPoints
+        const px = Math.cos(angle) * orbitRadius
+        const py = Math.sin(angle) * orbitRadius
+        
+        if (k === 0) ctx.moveTo(px, py)
+        else ctx.lineTo(px, py)
+    }
+    ctx.closePath()
     ctx.stroke()
+
+    // Draw Glowing Orbs at points
+    for(let k = 0; k < numPoints; k++) {
+        const angle = orbitSpeed + (k * Math.PI * 2) / numPoints
+        const px = Math.cos(angle) * orbitRadius
+        const py = Math.sin(angle) * orbitRadius
+        
+        // Orb Glow
+        ctx.fillStyle = "#ffdd44"
+        ctx.shadowColor = "#ffaa00"
+        ctx.shadowBlur = 10
+        ctx.beginPath()
+        ctx.arc(px, py, 8, 0, Math.PI * 2)
+        ctx.fill()
+        
+        // Orb Core
+        ctx.shadowBlur = 0
+        ctx.fillStyle = "#ffffff"
+        ctx.beginPath()
+        ctx.arc(px, py, 4, 0, Math.PI * 2)
+        ctx.fill()
+    }
+    ctx.restore()
   }
 
-  // Boss Body
-  ctx.fillStyle = "#4488ff" // Blue Dress
-  ctx.beginPath()
-  ctx.arc(0, 0, 24, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = "#ffddcc" // Face
-  ctx.beginPath()
-  ctx.arc(0, -4, 14, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = "#88ccff" // Hair
-  ctx.beginPath()
-  ctx.arc(0, -12, 16, Math.PI, 0)
-  ctx.fill()
-  
-  // Wings
-  ctx.fillStyle = "#ccffff88"
-  for(let i=0; i<6; i++) {
-     const ang = (i / 6) * Math.PI * 2 + timer * 0.05
-     const wx = Math.cos(ang) * 40
-     const wy = Math.sin(ang) * 40
-     ctx.beginPath()
-     ctx.moveTo(wx, wy - 10)
-     ctx.lineTo(wx + 10, wy)
-     ctx.lineTo(wx, wy + 10)
-     ctx.lineTo(wx - 10, wy)
-     ctx.fill()
+  // --- DRAWING MARISA (Body) ---
+  if (boss.name === "MARISA") {
+      // 1. Hat
+      ctx.fillStyle = "#222222" // Black hat
+      ctx.beginPath()
+      ctx.moveTo(-30, -10)
+      ctx.lineTo(30, -10)
+      ctx.lineTo(0, -60) // High peak
+      ctx.fill()
+      // Hat Rim
+      ctx.beginPath()
+      ctx.ellipse(0, -10, 35, 10, 0, 0, Math.PI * 2)
+      ctx.fill()
+      // White Bow on hat
+      ctx.fillStyle = "#eeeeee"
+      ctx.beginPath()
+      ctx.arc(-15, -15, 8, 0, Math.PI * 2)
+      ctx.fill()
+
+      // 2. Body
+      ctx.fillStyle = "#111111" // Black Dress
+      ctx.beginPath()
+      ctx.arc(0, 0, 24, 0, Math.PI * 2)
+      ctx.fill()
+      
+      // 3. Apron
+      ctx.fillStyle = "#ffffff"
+      ctx.beginPath()
+      ctx.arc(0, 4, 16, 0, Math.PI * 2)
+      ctx.fill()
+
+      // 4. Face & Hair
+      ctx.fillStyle = "#ffeebb" // Blonde Hair
+      ctx.beginPath()
+      ctx.arc(0, -12, 18, Math.PI, 0)
+      ctx.fill()
+      ctx.fillStyle = "#ffddcc" // Face
+      ctx.beginPath()
+      ctx.arc(0, -4, 14, 0, Math.PI * 2)
+      ctx.fill()
+  } 
+  // --- DRAWING OTHERS (CIRNO/REMILIA) ---
+  else {
+      // Ice Aura
+      ctx.strokeStyle = "#88ccff44"
+      ctx.lineWidth = 3
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath()
+        ctx.arc(0, 0, 30 + i * 8 + Math.sin(timer * 0.1 + i) * 4, 0, Math.PI * 2)
+        ctx.stroke()
+      }
+
+      // Boss Body
+      ctx.fillStyle = "#4488ff" // Blue Dress
+      if (boss.name === "REMILIA") ctx.fillStyle = "#ff88aa" // Pink dress for Remi
+
+      ctx.beginPath()
+      ctx.arc(0, 0, 24, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = "#ffddcc" // Face
+      ctx.beginPath()
+      ctx.arc(0, -4, 14, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = "#88ccff" // Hair
+      if (boss.name === "REMILIA") ctx.fillStyle = "#aaaaff" // Blue hair for Remi
+      ctx.beginPath()
+      ctx.arc(0, -12, 16, Math.PI, 0)
+      ctx.fill()
+      
+      // Wings
+      ctx.fillStyle = "#ccffff88"
+      if (boss.name === "REMILIA") ctx.fillStyle = "#44000088" // Dark wings for Remi
+
+      for(let i=0; i<6; i++) {
+        const ang = (i / 6) * Math.PI * 2 + timer * 0.05
+        const wx = Math.cos(ang) * 40
+        const wy = Math.sin(ang) * 40
+        ctx.beginPath()
+        ctx.moveTo(wx, wy - 10)
+        ctx.lineTo(wx + 10, wy)
+        ctx.lineTo(wx, wy + 10)
+        ctx.lineTo(wx - 10, wy)
+        ctx.fill()
+      }
   }
 
   ctx.restore()
 
+  // UI Bars (Top)
   ctx.fillStyle = "#ffdd44"
   ctx.font = "10px monospace"
   ctx.textAlign = "center"

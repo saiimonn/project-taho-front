@@ -44,8 +44,8 @@ export class GameManager {
       particles: [],
       screenShake: 0,
       gameStatus: "menu",
-      stage: 1, // changed for testing purposes 
-      stageTimer: 0, // changed for testing purposes
+      stage: 1, 
+      stageTimer: 0, 
       highScore,
       time: 0,
       difficulty: "normal",
@@ -259,7 +259,52 @@ export class GameManager {
 
   private handleBossShooting(): void {
     if (!this.state.boss) return
+    const pattern = this.state.boss.getCurrentPattern()
 
+    // 1. MARISA PHASE 3 CYCLE (10s Corner -> 4s Rest -> 10s Rain -> 4s Rest)
+    if (this.state.boss.name === "MARISA" && pattern === "master-spark") {
+      this.state.boss.cycleTimer++;
+      
+      // 0-600 (0-10s): 4-Corner Crossfire
+      if (this.state.boss.cycleTimer < 600) {
+         const corners = BulletPatternGenerator.generateMarisaCornerStars(this.state.boss, this.state.stageTimer)
+         this.state.bullets.push(...corners)
+      }
+      // 600-840 (10-14s): REST 1
+      else if (this.state.boss.cycleTimer < 840) {
+         // Do nothing
+      }
+      // 840-1440 (14-24s): Star Rain
+      else if (this.state.boss.cycleTimer < 1440) {
+         const rain = BulletPatternGenerator.generateMarisaRain(this.state.boss)
+         this.state.bullets.push(...rain)
+      }
+      // 1440-1680 (24-28s): REST 2
+      else if (this.state.boss.cycleTimer < 1680) {
+         // Do nothing
+      }
+      // Reset
+      else {
+         this.state.boss.cycleTimer = 0;
+      }
+      return;
+    }
+    
+    // 2. MARISA PHASE 2 (Continuous)
+    if (this.state.boss.name === "MARISA" && pattern === "non-directional-laser") {
+        const lasers = BulletPatternGenerator.generateMarisaLaser(this.state.boss, this.state.stageTimer)
+        this.state.bullets.push(...lasers)
+        return 
+    }
+
+    // 3. REMILIA PHASE 2 (Red Magic - Continuous)
+    if (this.state.boss.name === "REMILIA" && pattern === "red-magic") {
+        const magic = BulletPatternGenerator.generateRemiliaRedMagic(this.state.boss, this.state.stageTimer)
+        this.state.bullets.push(...magic)
+        return
+    }
+
+    // 4. STANDARD LOGIC
     if (this.state.boss.shouldShoot()) {
       const newBullets = BulletPatternGenerator.generateBossPattern(
         this.state.boss,
@@ -289,12 +334,13 @@ export class GameManager {
       new PowerUp(this.state.boss.x + 20, this.state.boss.y, "bomb")
     )
 
+    // CHANGED: INFINITE LOOP LOGIC
     if (this.state.stage >= 3) {
-      this.state.gameStatus = "victory"
+      this.state.stage = 1 // Loop back to start
     } else {
       this.state.stage += 1
-      this.state.stageTimer = 0
     }
+    this.state.stageTimer = 0 // Restart stage timer
 
     this.state.boss = null
     this.state.bullets = []
