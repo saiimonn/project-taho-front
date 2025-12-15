@@ -207,7 +207,7 @@ export class BulletPatternGenerator {
       const spin = timer * 0.08 
       for (let i = 0; i < arms; i++) {
         const angle = spin + (i * Math.PI * 2) / arms
-        bullets.push(this.createBullet(boss.x, boss.y, angle, 2.2, "red", "orb", 7))
+        bullets.push(this.createBullet(boss.x, boss.y, angle, 0.6, "red", "orb", 7))
       }
     }
 

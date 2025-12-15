@@ -15,6 +15,12 @@ import {
 } from "./game-types"
 import { BulletPatternGenerator } from "./bullet-patterns"
 
+// Importing sounds (Make sure your loader supports this, otherwise use string paths like "/sounds/cirno.mp3")
+import hitsound from "../../public/sounds/hitsound.mp3"
+import cirnoTheme from "../../public/sounds/cirno.mp3"
+import marisaTheme from "../../public/sounds/marisa.mp3"
+import remiliaTheme from "../../public/sounds/remilia.mp3"
+
 export const GAME_WIDTH = 600
 export const GAME_HEIGHT = 800
 const PLAYER_MARGIN = 16
@@ -24,9 +30,19 @@ export class GameManager {
   private patterns: BulletPattern[] = ["aimed", "radial", "spiral", "random", "wave"]
   private moves: MovePattern[] = ["straight", "sine", "circle", "static"]
   private types: EnemyType[] = ["fairy", "ghost", "spirit"]
+  
+  // Audio Elements
+  private bgm: HTMLAudioElement | null = null
+  private hitAudio: HTMLAudioElement | null = null
 
   constructor(highScore: number = 0) {
     this.state = this.createInitialState(highScore)
+    
+    // Preload hit sound
+    if (typeof window !== "undefined") {
+      this.hitAudio = new Audio(hitsound)
+      this.hitAudio.volume = 0.4
+    }
   }
 
   getState(): GameState {
@@ -52,7 +68,39 @@ export class GameManager {
     }
   }
 
+  // --- AUDIO METHODS ---
+  
+  private playSoundEffect() {
+    if (this.hitAudio) {
+      const clone = this.hitAudio.cloneNode() as HTMLAudioElement
+      clone.volume = 0.3
+      clone.play().catch(() => {})
+    }
+  }
+
+  private playBgm(source: string) {
+    this.stopBgm() // Stop any previous track
+    
+    if (typeof window !== "undefined") {
+      this.bgm = new Audio(source)
+      this.bgm.loop = true // Loop until stopped
+      this.bgm.volume = 0.1
+      this.bgm.play().catch((e) => console.error("BGM Play failed", e))
+    }
+  }
+
+  private stopBgm() {
+    if (this.bgm) {
+      this.bgm.pause()
+      this.bgm.currentTime = 0
+      this.bgm = null
+    }
+  }
+
+  // ---------------------
+
   resetGame(highScore: number): void {
+    this.stopBgm() // Silence music on reset
     this.state = {
       ...this.createInitialState(highScore),
       gameStatus: "playing",
@@ -107,6 +155,7 @@ export class GameManager {
     if (keys.shoot && this.state.stageTimer % 5 === 0) {
       const bullets = this.spawnPlayerBullets()
       this.state.playerBullets.push(...bullets)
+      this.playSoundEffect() // Play shoot sound
     }
   }
 
@@ -146,8 +195,15 @@ export class GameManager {
   private spawnEnemies(): void {
     const { stageTimer, stage, boss, enemies } = this.state
 
+    // BOSS SPAWN
     if (stageTimer === 1800 && !boss) {
       this.state.boss = new Boss(stage, GAME_WIDTH)
+      
+      // Start BGM based on stage
+      if (stage === 1) this.playBgm(cirnoTheme)
+      else if (stage === 2) this.playBgm(remiliaTheme)
+      else if (stage === 3) this.playBgm(marisaTheme)
+      
       this.state.bullets = []
       this.state.screenShake = 10;
       return
@@ -261,43 +317,38 @@ export class GameManager {
     if (!this.state.boss) return
     const pattern = this.state.boss.getCurrentPattern()
 
-    // 1. MARISA PHASE 3 CYCLE (10s Corner -> 4s Rest -> 10s Rain -> 4s Rest)
+    // 1. MARISA PHASE 3 CYCLE
     if (this.state.boss.name === "MARISA" && pattern === "master-spark") {
       this.state.boss.cycleTimer++;
       
-      // 0-600 (0-10s): 4-Corner Crossfire
       if (this.state.boss.cycleTimer < 600) {
          const corners = BulletPatternGenerator.generateMarisaCornerStars(this.state.boss, this.state.stageTimer)
          this.state.bullets.push(...corners)
       }
-      // 600-840 (10-14s): REST 1
       else if (this.state.boss.cycleTimer < 840) {
-         // Do nothing
+         // REST
       }
-      // 840-1440 (14-24s): Star Rain
       else if (this.state.boss.cycleTimer < 1440) {
          const rain = BulletPatternGenerator.generateMarisaRain(this.state.boss)
          this.state.bullets.push(...rain)
       }
-      // 1440-1680 (24-28s): REST 2
       else if (this.state.boss.cycleTimer < 1680) {
-         // Do nothing
+         // REST
       }
-      // Reset
       else {
          this.state.boss.cycleTimer = 0;
       }
       return;
     }
     
-    // 2. MARISA PHASE 2 (Continuous)
+    // 2. MARISA PHASE 2
     if (this.state.boss.name === "MARISA" && pattern === "non-directional-laser") {
         const lasers = BulletPatternGenerator.generateMarisaLaser(this.state.boss, this.state.stageTimer)
         this.state.bullets.push(...lasers)
         return 
     }
 
-    // 3. REMILIA PHASE 2 (Red Magic - Continuous)
+    // 3. REMILIA PHASE 2
     if (this.state.boss.name === "REMILIA" && pattern === "red-magic") {
         const magic = BulletPatternGenerator.generateRemiliaRedMagic(this.state.boss, this.state.stageTimer)
         this.state.bullets.push(...magic)
@@ -323,6 +374,9 @@ export class GameManager {
   private handleBossDeath(): void {
     if (!this.state.boss) return
 
+    // STOP MUSIC ON DEATH
+    this.stopBgm()
+
     this.state.player.addScore(10000)
     
     this.spawnParticles(this.state.boss.x, this.state.boss.y, 100, "#ff0088", "spark")
@@ -334,13 +388,12 @@ export class GameManager {
       new PowerUp(this.state.boss.x + 20, this.state.boss.y, "bomb")
     )
 
-    // CHANGED: INFINITE LOOP LOGIC
     if (this.state.stage >= 3) {
-      this.state.stage = 1 // Loop back to start
+      this.state.stage = 1 
     } else {
       this.state.stage += 1
     }
-    this.state.stageTimer = 0 // Restart stage timer
+    this.state.stageTimer = 0 
 
     this.state.boss = null
     this.state.bullets = []
@@ -444,6 +497,7 @@ export class GameManager {
   private checkGameOver(): void {
     if (!this.state.player.isAlive()) {
       this.state.gameStatus = "gameover"
+      this.stopBgm() // Stop music on game over
     }
   }
 
